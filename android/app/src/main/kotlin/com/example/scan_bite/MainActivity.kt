@@ -1,4 +1,4 @@
-package com.example.qr_code
+package com.example.scan_bite
 
 import io.flutter.embedding.android.FlutterActivity
 

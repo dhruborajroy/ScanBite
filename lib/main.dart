@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 
 void main() {
   runApp(const MyApp());
@@ -23,18 +25,20 @@ class MyApp extends StatelessWidget {
 }
 
 class MealStatusPage extends StatefulWidget {
+  const MealStatusPage({super.key});
+
   @override
-  _MealStatusPageState createState() => _MealStatusPageState();
+  MealStatusPageState createState() => MealStatusPageState();
 }
 
-class _MealStatusPageState extends State<MealStatusPage> {
+class MealStatusPageState extends State<MealStatusPage> {
   DateTime? selectedDate;
   String statusMessage = "";
   Color badgeColor = Colors.transparent;
   bool showBadge = false;
   String? serverIp;
   TextEditingController ipController = TextEditingController();
-  bool hasMeal = false; // Added: To track meal status selection
+  bool hasMeal = false; // To track meal status selection
 
   @override
   void initState() {
@@ -69,8 +73,7 @@ class _MealStatusPageState extends State<MealStatusPage> {
     }
   }
 
-  Future<void> simulateQrScan() async {
-    String hallId = "200130"; // Simulated hall_id from QR code scan
+  Future<void> simulateQrScan(String hallId) async {
     String date = "${selectedDate?.year}-${selectedDate?.month}-${selectedDate?.day}";
     String mealStatus = hasMeal ? "1" : "0"; // New: Send meal status
 
@@ -124,11 +127,20 @@ class _MealStatusPageState extends State<MealStatusPage> {
     }
   }
 
+  // This method will be called when a barcode is detected
+  void _onBarcodeDetected(BarcodeCapture barcodeCapture) {
+    final Barcode barcode = barcodeCapture.barcodes.first;
+    if (barcode.rawValue != null) {
+      String hallId = barcode.rawValue!;
+      simulateQrScan(hallId); // Pass the hallId scanned
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('ScanBite - Meal Status Checker'),
+        title: const Text('ScanBite - Meal Status Checker'),
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -137,7 +149,7 @@ class _MealStatusPageState extends State<MealStatusPage> {
             children: <Widget>[
               TextField(
                 controller: ipController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   labelText: 'Enter Server IP Address',
                   border: OutlineInputBorder(),
                 ),
@@ -147,16 +159,16 @@ class _MealStatusPageState extends State<MealStatusPage> {
                   });
                 },
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: () {
                   _saveServerIp(serverIp!);
                 },
-                child: Text("Save IP Address"),
+                child: const Text("Save IP Address"),
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-              Text(
+              const Text(
                 "Select a date:",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
@@ -167,13 +179,13 @@ class _MealStatusPageState extends State<MealStatusPage> {
                     ? "${selectedDate?.day}-${selectedDate?.month}-${selectedDate?.year}"
                     : "Pick a Date"),
               ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
 
               // Toggle for meal status
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
+                  const Text(
                     "Mark meal as ON",
                     style: TextStyle(fontSize: 16),
                   ),
@@ -188,11 +200,16 @@ class _MealStatusPageState extends State<MealStatusPage> {
                 ],
               ),
 
-              ElevatedButton(
-                onPressed: simulateQrScan,
-                child: Text("Scan QR Code"),
+              // MobileScanner widget for barcode scanning
+              SizedBox(
+                height: 300,
+                width: 300,
+                child: MobileScanner(
+                  onDetect: _onBarcodeDetected, // Correct callback parameter
+                ),
               ),
-              SizedBox(height: 40),
+
+              const SizedBox(height: 40),
 
               if (showBadge)
                 Container(
@@ -200,31 +217,31 @@ class _MealStatusPageState extends State<MealStatusPage> {
                     color: badgeColor,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
                   child: Text(
                     statusMessage,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 18,
                       color: Colors.white,
                     ),
                   ),
                 ),
 
-              SizedBox(height: 50),
+              const SizedBox(height: 50),
 
               // Developer Section
-              Text(
+              const Text(
                 'Developer Info',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-              CircleAvatar(
+              const CircleAvatar(
                 radius: 50,
                 backgroundImage: AssetImage('assets/images/developer_photo.png'),
               ),
-              SizedBox(height: 10),
-              Text('Dhrubo Raj Roy'),
-              Text('dhruborajroy3@gmail.com'),
-              Text('01705927257'),
+              const SizedBox(height: 10),
+              const Text('Dhrubo Raj Roy'),
+              const Text('dhruborajroy3@gmail.com'),
+              const Text('01705927257'),
             ],
           ),
         ),

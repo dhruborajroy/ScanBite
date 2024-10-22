@@ -1,6 +1,6 @@
 {
-    "name": "qr_code",
-    "short_name": "qr_code",
+    "name": "scan_bite",
+    "short_name": "scan_bite",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
