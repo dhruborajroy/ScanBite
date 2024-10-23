@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA"/>
     <application
-        android:label="scan_bite"
+        android:label="Scan Bite"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
