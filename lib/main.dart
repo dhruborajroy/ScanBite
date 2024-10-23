@@ -1,11 +1,11 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:get_storage/get_storage.dart';  // Import GetStorage
 
-void main() {
+void main() async {
+  await GetStorage.init();  // Initialize GetStorage
   runApp(const MyApp());
 }
 
@@ -40,6 +40,8 @@ class MealStatusPageState extends State<MealStatusPage> {
   TextEditingController ipController = TextEditingController();
   bool hasMeal = false; // To track meal status selection
 
+  final box = GetStorage();  // Create a GetStorage instance
+
   @override
   void initState() {
     super.initState();
@@ -47,16 +49,14 @@ class MealStatusPageState extends State<MealStatusPage> {
   }
 
   Future<void> _loadServerIp() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
-      serverIp = prefs.getString('server_ip') ?? '';
+      serverIp = box.read('server_ip') ?? '';
       ipController.text = serverIp ?? '';
     });
   }
 
   Future<void> _saveServerIp(String ip) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_ip', ip);
+    box.write('server_ip', ip);  // Save the server IP
   }
 
   Future<void> _selectDate(BuildContext context) async {
