@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
@@ -15,11 +16,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'ScanBite - Meal Status App',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MealStatusPage(),
+      home: const MealStatusPage(),
     );
   }
 }
@@ -32,108 +34,102 @@ class MealStatusPage extends StatefulWidget {
 }
 
 class MealStatusPageState extends State<MealStatusPage> {
-  DateTime? selectedDate;
-  String statusMessage = "";
-  Color badgeColor = Colors.transparent;
-  bool showBadge = false;
-  String? serverIp;
-  TextEditingController ipController = TextEditingController();
-  bool hasMeal = false; // To track meal status selection
+  final MobileScannerController _cameraController = MobileScannerController(); // MobileScanner controller
+  bool _isCameraActive = false; // Control camera state
+  String scannedData = ''; // Variable to store scanned QR code data
+  String selectedMealType = 'breakfast'; // Variable to store selected meal type
 
-  final box = GetStorage();  // Create a GetStorage instance
+  // Variables to store API response data
+  bool isSuccess = false; // Track API call success
+  String name = '';
+  String hallId = '';
+  String mealType = '';
+  String errorMessage = ''; // Error message if the API call fails
 
-  @override
-  void initState() {
-    super.initState();
-    _loadServerIp();
-  }
-
-  Future<void> _loadServerIp() async {
-    setState(() {
-      serverIp = box.read('server_ip') ?? '';
-      ipController.text = serverIp ?? '';
-    });
-  }
-
-  Future<void> _saveServerIp(String ip) async {
-    box.write('server_ip', ip);  // Save the server IP
-  }
-
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null && picked != selectedDate) {
-      setState(() {
-        selectedDate = picked;
-      });
-    }
-  }
-
-  Future<void> simulateQrScan(String hallId) async {
-    String date = "${selectedDate?.year}-${selectedDate?.month}-${selectedDate?.day}";
-    String mealStatus = hasMeal ? "1" : "0"; // New: Send meal status
-
-    if (serverIp != null && serverIp!.isNotEmpty) {
-      await checkAndUpdateMealStatus(hallId, date, mealStatus);
-    } else {
-      setState(() {
-        showBadge = true;
-        badgeColor = Colors.red;
-        statusMessage = "Please enter a valid server IP.";
-      });
-    }
-  }
-
-  Future<void> checkAndUpdateMealStatus(String hallId, String date, String mealStatus) async {
-    String serverUrl;
-    if (serverIp != null && (serverIp!.startsWith('http://') || serverIp!.startsWith('https://'))) {
-      serverUrl = serverIp!;
-    } else {
-      serverUrl = 'http://$serverIp';
-    }
-
-    var url = Uri.parse('$serverUrl/check_and_update_meal_status.php');
-    var response = await http.post(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({"hall_id": hallId, "date": date, "meal_status": mealStatus}),
-    );
-
-    if (response.statusCode == 200) {
-      var jsonResponse = jsonDecode(response.body);
-      if (jsonResponse['status'] == 'success') {
-        setState(() {
-          showBadge = true;
-          badgeColor = hasMeal ? Colors.green : Colors.red;
-          statusMessage = hasMeal ? "Meal marked as ON" : "Meal marked as OFF";
-        });
-      } else {
-        setState(() {
-          showBadge = true;
-          badgeColor = Colors.grey;
-          statusMessage = "Failed to update meal status.";
-        });
-      }
-    } else {
-      setState(() {
-        showBadge = true;
-        badgeColor = Colors.red;
-        statusMessage = "Server error. Failed to update status.";
-      });
-    }
-  }
-
-  // This method will be called when a barcode is detected
-  void _onBarcodeDetected(BarcodeCapture barcodeCapture) {
+  void _onBarcodeDetected(BarcodeCapture barcodeCapture) async {
     final Barcode barcode = barcodeCapture.barcodes.first;
     if (barcode.rawValue != null) {
-      String hallId = barcode.rawValue!;
-      simulateQrScan(hallId); // Pass the hallId scanned
+      scannedData = barcode.rawValue!;
+      if (kDebugMode) {
+        print("QR Code: $scannedData");
+      }
+
+      // Turn off the camera after detecting the QR code
+      _cameraController.stop();
+      setState(() {
+        _isCameraActive = false; // Update state to stop camera
+      });
+
+      // Parse the scanned data (assuming it's JSON)
+      Map<String, dynamic> qrData = json.decode(scannedData);
+
+      // Send the scanned data to the API
+      await _sendScannedData(qrData);
     }
+  }
+
+  // Function to send scanned data to the API
+  Future<void> _sendScannedData(Map<String, dynamic> qrData) async {
+    var headers = {
+      'Content-Type': 'application/json'
+    };
+
+    var request = http.Request('POST', Uri.parse('http://192.168.0.150/app/api.php'));
+
+    // Dynamically set the body using the scanned QR code data and selected meal type
+    request.body = json.encode({
+      "app_id": qrData["app_id"] ?? "default_app_id",
+      "name": qrData["name"] ?? "default_name",
+      "hall_id": qrData["hall_id"] ?? "default_hall_id",
+      "date": DateTime.now().toString(),
+      "meal_type": selectedMealType // Pass the selected meal type
+    });
+
+    request.headers.addAll(headers);
+
+    http.StreamedResponse response = await request.send();
+
+    if (response.statusCode == 200) {
+      String responseBody = await response.stream.bytesToString();
+      Map<String, dynamic> responseData = json.decode(responseBody);
+
+      // Update UI with the scanned information
+      setState(() {
+        isSuccess = true; // Successful API call
+        name = responseData["name"] ?? "Unknown Name";
+        hallId = responseData["hall_id"] ?? "Unknown Hall ID";
+        mealType = selectedMealType;
+        errorMessage = ''; // Clear any previous errors
+      });
+    } else {
+      setState(() {
+        isSuccess = false; // API call failed
+        errorMessage = 'Did not register for meal';
+      });
+    }
+  }
+
+  // Function to toggle camera scanning
+  void _toggleCamera() {
+    if (_isCameraActive) {
+      // Turn off the camera
+      _cameraController.stop();
+      setState(() {
+        _isCameraActive = false;
+      });
+    } else {
+      // Turn on the camera
+      setState(() {
+        _isCameraActive = true;
+      });
+      _cameraController.start();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraController.dispose(); // Dispose controller when the widget is removed
+    super.dispose();
   }
 
   @override
@@ -146,88 +142,99 @@ class MealStatusPageState extends State<MealStatusPage> {
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              TextField(
-                controller: ipController,
-                decoration: const InputDecoration(
-                  labelText: 'Enter Server IP Address',
-                  border: OutlineInputBorder(),
+              // Show camera if activated
+              if (_isCameraActive)
+                SizedBox(
+                  height: 300,
+                  width: 300,
+                  child: MobileScanner(
+                    controller: _cameraController,
+                    onDetect: _onBarcodeDetected, // Correct callback parameter
+                  ),
                 ),
-                onChanged: (value) {
-                  setState(() {
-                    serverIp = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
+
+              // Button to scan new QR code or stop scan
               ElevatedButton(
-                onPressed: () {
-                  _saveServerIp(serverIp!);
-                },
-                child: const Text("Save IP Address"),
+                onPressed: _toggleCamera, // Toggle camera on/off
+                child: Text(_isCameraActive ? 'Stop Scan' : 'Scan New QR Code'),
               ),
+
               const SizedBox(height: 20),
 
-              const Text(
-                "Select a date:",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: () => _selectDate(context),
-                child: Text(selectedDate != null
-                    ? "${selectedDate?.day}-${selectedDate?.month}-${selectedDate?.year}"
-                    : "Pick a Date"),
-              ),
-              const SizedBox(height: 20),
-
-              // Toggle for meal status
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    "Mark meal as ON",
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  Switch(
-                    value: hasMeal,
-                    onChanged: (value) {
-                      setState(() {
-                        hasMeal = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-
-              // MobileScanner widget for barcode scanning
-              SizedBox(
-                height: 300,
-                width: 300,
-                child: MobileScanner(
-                  onDetect: _onBarcodeDetected, // Correct callback parameter
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              if (showBadge)
-                Container(
-                  decoration: BoxDecoration(
-                    color: badgeColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-                  child: Text(
-                    statusMessage,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
+              // Show the result based on the API response
+              if (isSuccess)
+              // Success message with name, hall ID, and meal type
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Name: $name',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 16,
+                      ),
                     ),
+                    Text(
+                      'Hall ID: $hallId',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      'Meal Type: $mealType',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                )
+              else if (errorMessage.isNotEmpty)
+              // Error message if registration for meal failed
+                Text(
+                  errorMessage,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 16,
                   ),
                 ),
 
-              const SizedBox(height: 50),
+              const SizedBox(height: 20),
+
+              // Radio buttons for selecting meal type
+              const Text(
+                'Select Meal Type:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              ListTile(
+                title: const Text('Breakfast'),
+                leading: Radio<String>(
+                  value: 'breakfast',
+                  groupValue: selectedMealType,
+                  onChanged: (String? value) {
+                    setState(() {
+                      selectedMealType = value!;
+                    });
+                  },
+                ),
+              ),
+              ListTile(
+                title: const Text('Dinner'),
+                leading: Radio<String>(
+                  value: 'dinner',
+                  groupValue: selectedMealType,
+                  onChanged: (String? value) {
+                    setState(() {
+                      selectedMealType = value!;
+                    });
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 20),
 
               // Developer Section
               const Text(
@@ -236,7 +243,7 @@ class MealStatusPageState extends State<MealStatusPage> {
               ),
               const CircleAvatar(
                 radius: 50,
-                backgroundImage: AssetImage('assets/images/developer_photo.png'),
+                backgroundImage: AssetImage('assets/images/joy.jpg'),
               ),
               const SizedBox(height: 10),
               const Text('Dhrubo Raj Roy'),
@@ -249,3 +256,5 @@ class MealStatusPageState extends State<MealStatusPage> {
     );
   }
 }
+
+
