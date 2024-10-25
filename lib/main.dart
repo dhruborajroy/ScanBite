@@ -107,6 +107,7 @@ class MealStatusPageState extends State<MealStatusPage> {
       "app_id": qrData["app_id"] ?? "default_app_id",
       "name": qrData["name"] ?? "default_name",
       "hall_id": qrData["hall_id"] ?? "default_hall_id",
+      "reg_no":qrData["reg_no"] ?? "default_reg_no",
       "date": selectedDate.toIso8601String(),
       "meal_type": selectedMealType
     });
@@ -131,7 +132,7 @@ class MealStatusPageState extends State<MealStatusPage> {
           name = responseData["name"] ?? "default_name";
           hallId = qrData["hall_id"] ?? "default_hall_id";
           mealType = selectedMealType;
-          errorMessage = '';
+          errorMessage = responseData["message"] ?? 'Did not register for meal';
         });
       } else {
         // Failure
@@ -342,6 +343,19 @@ class MealStatusPageState extends State<MealStatusPage> {
                 '${selectedDate.toLocal()}'.split(' ')[0],
                 style: const TextStyle(fontSize: 16),
               ),
+              const SizedBox(height: 20),
+              const Text(
+                'Developer Info',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const CircleAvatar(
+                radius: 50,
+                backgroundImage: AssetImage('assets/images/joy.jpg'),
+              ),
+              const SizedBox(height: 10),
+              const Text('Dhrubo Raj Roy'),
+              const Text('dhruborajroy3@gmail.com'),
+              const Text('01705927257'),
             ],
           ),
         ),
