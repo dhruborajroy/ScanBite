@@ -3,10 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
-import 'package:get_storage/get_storage.dart';  // Import GetStorage
+import 'package:get_storage/get_storage.dart';
+import 'package:flutter/cupertino.dart'; // Import Cupertino for the date picker
 
 void main() async {
-  await GetStorage.init();  // Initialize GetStorage
+  await GetStorage.init();
   runApp(const MyApp());
 }
 
@@ -34,19 +35,25 @@ class MealStatusPage extends StatefulWidget {
 }
 
 class MealStatusPageState extends State<MealStatusPage> {
-  final MobileScannerController _cameraController = MobileScannerController(); // MobileScanner controller
-  bool _isCameraActive = false; // Control camera state
-  String scannedData = ''; // Variable to store scanned QR code data
-  String selectedMealType = 'breakfast'; // Variable to store selected meal type
+  final MobileScannerController _cameraController = MobileScannerController();
+  bool _isCameraActive = false;
+  String scannedData = '';
+  String selectedMealType = 'breakfast';
 
-  // Variables to store API response data
-  bool isSuccess = false; // Track API call success
+  bool isSuccess = false;
   String name = '';
   String hallId = '';
   String mealType = '';
-  String errorMessage = ''; // Error message if the API call fails
+  String errorMessage = '';
+  DateTime selectedDate = DateTime.now();
+  bool isProcessing = false; // Add this flag to prevent multiple requests
 
+  final TextEditingController _urlController = TextEditingController(); // Controller for URL input
+
+  // Function to handle barcode detection
   void _onBarcodeDetected(BarcodeCapture barcodeCapture) async {
+    if (isProcessing) return; // Prevent multiple requests
+
     final Barcode barcode = barcodeCapture.barcodes.first;
     if (barcode.rawValue != null) {
       scannedData = barcode.rawValue!;
@@ -54,35 +61,54 @@ class MealStatusPageState extends State<MealStatusPage> {
         print("QR Code: $scannedData");
       }
 
-      // Turn off the camera after detecting the QR code
       _cameraController.stop();
       setState(() {
-        _isCameraActive = false; // Update state to stop camera
+        _isCameraActive = false;
+        isProcessing = true; // Mark processing as true before the request
       });
 
-      // Parse the scanned data (assuming it's JSON)
-      Map<String, dynamic> qrData = json.decode(scannedData);
+      try {
+        // Decode the scanned data
+        Map<String, dynamic> qrData = json.decode(scannedData);
 
-      // Send the scanned data to the API
-      await _sendScannedData(qrData);
+        // Send the scanned data
+        await _sendScannedData(qrData);
+
+      } catch (e) {
+        // Handle error during decoding
+        if (kDebugMode) {
+          print("Error decoding scanned data: $e");
+        }
+        setState(() {
+          isSuccess = false;
+          errorMessage = 'Invalid QR code data, could not register for meal.';
+        });
+      } finally {
+        setState(() {
+          isProcessing = false;
+        });
+      }
     }
   }
 
-  // Function to send scanned data to the API
   Future<void> _sendScannedData(Map<String, dynamic> qrData) async {
     var headers = {
       'Content-Type': 'application/json'
     };
 
-    var request = http.Request('POST', Uri.parse('http://192.168.0.150/app/api.php'));
+    // Check if user has entered a URL or use default
+    String apiUrl = _urlController.text.isNotEmpty
+        ? _urlController.text
+        : 'https://mashallah.shop/app/api.php';
 
-    // Dynamically set the body using the scanned QR code data and selected meal type
+    var request = http.Request('POST', Uri.parse(apiUrl));
+
     request.body = json.encode({
       "app_id": qrData["app_id"] ?? "default_app_id",
       "name": qrData["name"] ?? "default_name",
       "hall_id": qrData["hall_id"] ?? "default_hall_id",
-      "date": DateTime.now().toString(),
-      "meal_type": selectedMealType // Pass the selected meal type
+      "date": selectedDate.toIso8601String(),
+      "meal_type": selectedMealType
     });
 
     request.headers.addAll(headers);
@@ -91,34 +117,84 @@ class MealStatusPageState extends State<MealStatusPage> {
 
     if (response.statusCode == 200) {
       String responseBody = await response.stream.bytesToString();
+
+      if (kDebugMode) {
+        print("Full response::: $responseBody");
+      }
+
       Map<String, dynamic> responseData = json.decode(responseBody);
 
-      // Update UI with the scanned information
-      setState(() {
-        isSuccess = true; // Successful API call
-        name = responseData["name"] ?? "Unknown Name";
-        hallId = responseData["hall_id"] ?? "Unknown Hall ID";
-        mealType = selectedMealType;
-        errorMessage = ''; // Clear any previous errors
-      });
+      if (responseData["status_code"] == "200") {
+        // Success
+        setState(() {
+          isSuccess = true;
+          name = responseData["name"] ?? "default_name";
+          hallId = qrData["hall_id"] ?? "default_hall_id";
+          mealType = selectedMealType;
+          errorMessage = '';
+        });
+      } else {
+        // Failure
+        setState(() {
+          isSuccess = false;
+          errorMessage = responseData["message"] ?? 'Did not register for meal';
+        });
+      }
     } else {
+      // HTTP error
       setState(() {
-        isSuccess = false; // API call failed
+        isSuccess = false;
         errorMessage = 'Did not register for meal';
       });
+
+      if (kDebugMode) {
+        print("HTTP error: ${response.statusCode}");
+      }
     }
   }
 
-  // Function to toggle camera scanning
+  // Date Picker function
+  void _showDatePicker(BuildContext context) {
+    showCupertinoModalPopup(
+      context: context,
+      builder: (BuildContext builder) {
+        return Container(
+          height: 250,
+          color: Colors.white,
+          child: Column(
+            children: [
+              SizedBox(
+                height: 200,
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.date,
+                  initialDateTime: selectedDate,
+                  onDateTimeChanged: (DateTime newDate) {
+                    setState(() {
+                      selectedDate = newDate;
+                    });
+                  },
+                ),
+              ),
+              CupertinoButton(
+                child: const Text('Done'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _toggleCamera() {
     if (_isCameraActive) {
-      // Turn off the camera
       _cameraController.stop();
       setState(() {
         _isCameraActive = false;
       });
     } else {
-      // Turn on the camera
       setState(() {
         _isCameraActive = true;
       });
@@ -128,7 +204,8 @@ class MealStatusPageState extends State<MealStatusPage> {
 
   @override
   void dispose() {
-    _cameraController.dispose(); // Dispose controller when the widget is removed
+    _cameraController.dispose();
+    _urlController.dispose(); // Dispose the URL controller
     super.dispose();
   }
 
@@ -144,28 +221,32 @@ class MealStatusPageState extends State<MealStatusPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              // Show camera if activated
               if (_isCameraActive)
                 SizedBox(
                   height: 300,
                   width: 300,
                   child: MobileScanner(
                     controller: _cameraController,
-                    onDetect: _onBarcodeDetected, // Correct callback parameter
+                    onDetect: _onBarcodeDetected,
                   ),
                 ),
-
-              // Button to scan new QR code or stop scan
               ElevatedButton(
-                onPressed: _toggleCamera, // Toggle camera on/off
+                onPressed: _toggleCamera,
                 child: Text(_isCameraActive ? 'Stop Scan' : 'Scan New QR Code'),
               ),
-
               const SizedBox(height: 20),
 
-              // Show the result based on the API response
+              // URL input field
+              TextFormField(
+                controller: _urlController,
+                decoration: const InputDecoration(
+                  labelText: 'Enter API URL (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 20),
+
               if (isSuccess)
-              // Success message with name, hall ID, and meal type
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -193,7 +274,6 @@ class MealStatusPageState extends State<MealStatusPage> {
                   ],
                 )
               else if (errorMessage.isNotEmpty)
-              // Error message if registration for meal failed
                 Text(
                   errorMessage,
                   style: const TextStyle(
@@ -201,10 +281,7 @@ class MealStatusPageState extends State<MealStatusPage> {
                     fontSize: 16,
                   ),
                 ),
-
               const SizedBox(height: 20),
-
-              // Radio buttons for selecting meal type
               const Text(
                 'Select Meal Type:',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -213,6 +290,18 @@ class MealStatusPageState extends State<MealStatusPage> {
                 title: const Text('Breakfast'),
                 leading: Radio<String>(
                   value: 'breakfast',
+                  groupValue: selectedMealType,
+                  onChanged: (String? value) {
+                    setState(() {
+                      selectedMealType = value!;
+                    });
+                  },
+                ),
+              ),
+              ListTile(
+                title: const Text('Lunch'),
+                leading: Radio<String>(
+                  value: 'lunch',
                   groupValue: selectedMealType,
                   onChanged: (String? value) {
                     setState(() {
@@ -233,22 +322,26 @@ class MealStatusPageState extends State<MealStatusPage> {
                   },
                 ),
               ),
-
               const SizedBox(height: 20),
 
-              // Developer Section
-              const Text(
-                'Developer Info',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              // Date picker button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Selected Date:',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _showDatePicker(context),
+                    child: const Text('Pick Date'),
+                  ),
+                ],
               ),
-              const CircleAvatar(
-                radius: 50,
-                backgroundImage: AssetImage('assets/images/joy.jpg'),
+              Text(
+                '${selectedDate.toLocal()}'.split(' ')[0],
+                style: const TextStyle(fontSize: 16),
               ),
-              const SizedBox(height: 10),
-              const Text('Dhrubo Raj Roy'),
-              const Text('dhruborajroy3@gmail.com'),
-              const Text('01705927257'),
             ],
           ),
         ),
@@ -256,5 +349,3 @@ class MealStatusPageState extends State<MealStatusPage> {
     );
   }
 }
-
-
