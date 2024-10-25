@@ -272,6 +272,13 @@ class MealStatusPageState extends State<MealStatusPage> {
                         fontSize: 16,
                       ),
                     ),
+                    Text(
+                      'Registration No : $errorMessage',
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 16,
+                      ),
+                    ),
                   ],
                 )
               else if (errorMessage.isNotEmpty)
