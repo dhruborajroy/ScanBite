@@ -1,0 +1,5 @@
+[02-Nov-2024 07:50:58 UTC] PHP Fatal error:  Uncaught mysqli_sql_exception: Table 'mashalla_Dhrubo.meal_records' doesn't exist in /home/mashalla/public_html/app/index.php:114
+Stack trace:
+#0 /home/mashalla/public_html/app/index.php(114): mysqli_query()
+#1 {main}
+  thrown in /home/mashalla/public_html/app/index.php on line 114
