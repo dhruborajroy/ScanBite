@@ -157,3 +157,85 @@ echo "Total rows restored from backup: $totalRestored<br>";
 echo "Future days cleared except 'F' and 'A'.<br>";
 echo "Import process completed.<br>";
 ?>
+
+
+<?php
+// -----------------------------
+// CONFIGURATION
+// -----------------------------
+$servername = "localhost";
+$username   = "mashalla_Dhrubo";
+$password   = "Dhrubo@123";
+$dbname     = "mashalla_Dhrubo";
+
+// JSON URL
+$jsonUrl = "https://bec.edu.bd/developer/test/sheet";
+
+// -----------------------------
+// CONNECT TO DATABASE
+// -----------------------------
+$conn = mysqli_connect($servername, $username, $password, $dbname);
+if (!$conn) {
+    die("DB Connection failed: " . mysqli_connect_error());
+}
+
+// -----------------------------
+// FETCH JSON
+// -----------------------------
+$jsonData = file_get_contents($jsonUrl);
+if ($jsonData === false) die("Failed to fetch JSON data from URL");
+
+$data = json_decode($jsonData, true);
+if ($data === null) die("Invalid JSON data");
+
+// -----------------------------
+// PROCESS JSON FOR FOOD PREFERENCES
+// -----------------------------
+$totalInserted = 0;
+$totalUpdated  = 0;
+$totalSkipped  = 0;
+
+foreach ($data as $student) {
+    $roll = mysqli_real_escape_string($conn, $student['ROLL'] ?? '');
+    $egg  = mysqli_real_escape_string($conn, $student['egg_fish'] ?? '');
+    $mutton = mysqli_real_escape_string($conn, $student['mutton'] ?? '');
+
+    if ($roll === '') continue;
+
+    // Check if roll exists
+    $checkQuery = "SELECT egg_fish, mutton FROM food_preferences WHERE roll='$roll'";
+    $res = mysqli_query($conn, $checkQuery);
+
+    if (mysqli_num_rows($res) > 0) {
+        // Exists, check if update is needed
+        $row = mysqli_fetch_assoc($res);
+        if ($row['egg_fish'] === $egg && $row['mutton'] === $mutton) {
+            $totalSkipped++;
+            continue; // No change
+        } else {
+            // Update the changed values
+            $updateQuery = "UPDATE food_preferences SET egg_fish='$egg', mutton='$mutton' WHERE roll='$roll'";
+            if (mysqli_query($conn, $updateQuery)) {
+                $totalUpdated++;
+            }
+        }
+    } else {
+        // Insert new
+        $insertQuery = "INSERT INTO food_preferences (roll, egg_fish, mutton) VALUES ('$roll', '$egg', '$mutton')";
+        if (mysqli_query($conn, $insertQuery)) {
+            $totalInserted++;
+        }
+    }
+}
+
+mysqli_close($conn);
+
+// -----------------------------
+// LOG REPORT
+// -----------------------------
+echo "==== Food Preferences Import Report ====\n";
+echo "Total inserted: $totalInserted\n";
+echo "Total updated:  $totalUpdated\n";
+echo "Total skipped:  $totalSkipped\n";
+?>
+
