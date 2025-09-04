@@ -1,113 +1,159 @@
 <?php
-$ptime=time();
-// Database connection settings
+// -----------------------------
+// CONFIGURATION
+// -----------------------------
+set_time_limit(0);
+ini_set('memory_limit', '1G');
+
+$batchSize = 100;
+
 $servername = "localhost";
-$username = "mashalla_Dhrubo";
-$password = "Dhrubo@123";
-$dbname = "mashalla_Dhrubo";
+$username   = "mashalla_Dhrubo";
+$password   = "Dhrubo@123";
+$dbname     = "mashalla_Dhrubo";
 
-// Create connection
+$jsonUrl = "https://bec.edu.bd/developer/test/sheet";
+
+// -----------------------------
+// CONNECT TO DATABASE
+// -----------------------------
 $conn = mysqli_connect($servername, $username, $password, $dbname);
-
-// Check connection
 if (!$conn) {
-    die("Connection failed: " . mysqli_connect_error());
+    die("DB Connection failed: " . mysqli_connect_error());
 }
 
-// Load JSON data from file
-$jsonData = file_get_contents("meal_data.json");
-$data = json_decode($jsonData, true); // Convert JSON data to associative array
+// -----------------------------
+// BACKUP TABLE SETUP
+// -----------------------------
+$backupTable = 'attendance_backup';
+mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `$backupTable` LIKE attendance") 
+    or die("Failed to create backup table: " . mysqli_error($conn));
+mysqli_query($conn, "TRUNCATE TABLE `$backupTable`") 
+    or die("Failed to truncate backup table: " . mysqli_error($conn));
+mysqli_query($conn, "INSERT INTO `$backupTable` SELECT * FROM attendance") 
+    or die("Failed to copy data to backup table: " . mysqli_error($conn));
 
-// Set the month and year for these records
-$month = date("n"); // Example: October
-$year = date("Y"); // Example: 2024
+// -----------------------------
+// FETCH JSON
+// -----------------------------
+$jsonData = file_get_contents($jsonUrl);
+if ($jsonData === false) die("Failed to fetch JSON data from URL");
 
-// Loop through each student in the data
-foreach ($data as $student) {
-    $rollNo = $student["ROLL"];
-    $regNo = $student["REG"];
-    $name = $student["NAME"];
-    if($rollNo==0 || $rollNo==""){
-        
-    }else{
-        // Loop through each day's value for the current student
+$data = json_decode($jsonData, true);
+if ($data === null) die("Invalid JSON data");
+
+// -----------------------------
+// CURRENT MONTH/YEAR/TODAY
+// -----------------------------
+$month = date("n");
+$year  = date("Y");
+$today = date("j");
+
+// -----------------------------
+// CLEAR FUTURE DAYS EXCEPT F AND A
+// -----------------------------
+$clearFutureQuery = "
+    UPDATE attendance 
+    SET meal_value = ''
+    WHERE day > $today
+      AND month = $month
+      AND year = $year
+      AND meal_value NOT IN ('F','A')
+";
+mysqli_query($conn, $clearFutureQuery) 
+    or die("Failed to clear future days: " . mysqli_error($conn));
+
+// -----------------------------
+// LOG VARIABLES
+// -----------------------------
+$totalInserted = 0;
+$totalUpdated  = 0;
+$totalRestored = 0;
+
+// -----------------------------
+// PROCESS JSON IN BATCHES
+// -----------------------------
+$total = count($data);
+echo "Total students: $total<br>";
+
+for ($offset = 0; $offset < $total; $offset += $batchSize) {
+    $batch = array_slice($data, $offset, $batchSize);
+    $values = [];
+
+    foreach ($batch as $student) {
+        $rollNo = $student['ROLL'] ?? '';
+        $regNo  = $student['REG'] ?? '';
+        $name   = $student['NAME'] ?? '';
+        if ($rollNo === '' || $rollNo == 0) continue;
+
+        $forceF = (($student['9'] ?? '') === 'F') || (($student['10'] ?? '') === 'U');
+
         for ($day = 1; $day <= 31; $day++) {
-            if (isset($student[(string)$day])) {
-                if($student[(string)2]=='F' || $student[(string)3]=='U'){
-                    if (!is_numeric($student[(string)2]) || $student[(string)3]) {
-                        $mealValue = $student[(string)$day];
-                        // Query to check if there's an existing meal value in the database
-                        $checkQuery = "SELECT meal_value FROM attendance 
-                                       WHERE roll_no = '$rollNo' AND day = '$day' 
-                                       AND month = '$month' AND year = '$year' 
-                                       LIMIT 1";
-                        $result = mysqli_query($conn, $checkQuery);
-                        
-                        // If a record exists, fetch it
-                        if ($result && mysqli_num_rows($result) > 0) {
-                            $row = mysqli_fetch_assoc($result);
-                            $existingMealValue = $row['meal_value'];
-    
-                            // Check if the existing meal value matches the current day's value
-                            if ($existingMealValue == $mealValue) {
-                                // If they match, skip insertion
-                                continue;
-                            }
-                        }else{
-                            // Prepare the insert query
-                            $query = "INSERT INTO attendance (roll_no, reg_no, name, meal_value, day, month, year) 
-                                  VALUES ('$rollNo', '$regNo', '$name', 'F', '$day', '$month', '$year')";
-                            // print_r($student[(string)2]);
-                            mysqli_query($conn, $query);
-                        }
-                    } else {
-                        echo "error";
-                    }
-                    
-                }else{
-                    $mealValue = $student[(string)$day];
-                    // Query to check if there's an existing meal value in the database
-                    $checkQuery = "SELECT meal_value FROM attendance 
-                                   WHERE roll_no = '$rollNo' AND day = '$day' 
-                                   AND month = '$month' AND year = '$year' 
-                                   LIMIT 1";
-                    $result = mysqli_query($conn, $checkQuery);
-                    
-                    // If a record exists, fetch it
-                    if ($result && mysqli_num_rows($result) > 0) {
-                        $row = mysqli_fetch_assoc($result);
-                        $existingMealValue = $row['meal_value'];
-                        
-                        // Check if the existing meal value matches the current day's value
-                        if ($existingMealValue == $mealValue) {
-                            // If they match, skip insertion
-                            continue;
-                        }
-                    }else{
-                        
-                        // Skip if meal value is empty
-                        if ($mealValue === "") {
-                            continue;
-                        }
-            
-                        // Prepare the insert query
-                        $query = "INSERT INTO attendance (roll_no, reg_no, name, meal_value, day, month, year) 
-                                  VALUES ('$rollNo', '$regNo', '$name', '$mealValue', '$day', '$month', '$year')";
-                                  
-                        // Execute the query
-                        if (!mysqli_query($conn, $query)) {
-                            echo "Error: " . mysqli_error($conn);
-                        }
-            
-                    }
-                }
+            $mealValue = $forceF ? 'F' : ($student[(string)$day] ?? '');
+            if ($mealValue === '') continue;
+
+            $rollNoEsc = mysqli_real_escape_string($conn, $rollNo);
+            $regNoEsc  = mysqli_real_escape_string($conn, $regNo);
+            $nameEsc   = mysqli_real_escape_string($conn, $name);
+            $mealEsc   = mysqli_real_escape_string($conn, $mealValue);
+
+            $values[] = "('$rollNoEsc','$regNoEsc','$nameEsc','$mealEsc','$day','$month','$year')";
+        }
+    }
+
+    if (count($values) > 0) {
+        $insertQuery = "INSERT INTO attendance (roll_no, reg_no, name, meal_value, day, month, year) VALUES "
+                     . implode(",", $values)
+                     . " ON DUPLICATE KEY UPDATE 
+                        reg_no = VALUES(reg_no),
+                        name = VALUES(name),
+                        meal_value = VALUES(meal_value)";
+        if (mysqli_query($conn, $insertQuery)) {
+            $affectedRows = mysqli_affected_rows($conn);
+            $totalInserted += count($values);
+            $totalUpdated  += max(0, $affectedRows - count($values));
+        } else {
+            echo "Error inserting/updating batch: " . mysqli_error($conn) . "<br>";
+        }
+    }
+}
+
+// -----------------------------
+// RESTORE MISSING DATA FROM BACKUP
+// -----------------------------
+foreach ($data as $student) {
+    $rollNo = $student['ROLL'] ?? '';
+    if ($rollNo === '' || $rollNo == 0) continue;
+
+    $forceF = (($student['9'] ?? '') === 'F') || (($student['10'] ?? '') === 'U');
+
+    for ($day = 1; $day <= 31; $day++) {
+        $mealValue = $forceF ? 'F' : ($student[(string)$day] ?? '');
+        if ($mealValue !== '') continue; // Only restore missing entries
+
+        $checkQuery = "SELECT * FROM attendance WHERE roll_no='$rollNo' AND day='$day' AND month='$month' AND year='$year'";
+        $res = mysqli_query($conn, $checkQuery);
+        if (mysqli_num_rows($res) == 0) {
+            $restoreQuery = "INSERT INTO attendance (roll_no, reg_no, name, meal_value, day, month, year)
+                             SELECT roll_no, reg_no, name, meal_value, day, month, year 
+                             FROM `$backupTable` 
+                             WHERE roll_no='$rollNo' AND day='$day' AND month='$month' AND year='$year'";
+            if (mysqli_query($conn, $restoreQuery)) {
+                $totalRestored += mysqli_affected_rows($conn);
             }
         }
     }
-    }
+}
 
-// Close the connection
 mysqli_close($conn);
-echo "<h1>Data inserted successfully for ".$month." ".$year;  
-echo "<br> Took ".time()-$ptime." Seconds</h1>";
+
+// -----------------------------
+// LOG REPORT
+// -----------------------------
+echo "<br>==== Import Report ====<br>";
+echo "Total rows inserted/attempted: $totalInserted<br>";
+echo "Total rows updated: $totalUpdated<br>";
+echo "Total rows restored from backup: $totalRestored<br>";
+echo "Future days cleared except 'F' and 'A'.<br>";
+echo "Import process completed.<br>";
 ?>
